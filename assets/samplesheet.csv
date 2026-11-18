@@ -1,0 +1,4 @@
+sample,fastq_1,fastq_2
+N2_ArimaHiC_rep1,/path/to/fastq/N2_ArimaHiC_rep1_L001_R1_001.fastq.gz,/path/to/fastq/N2_ArimaHiC_rep1_L001_R2_001.fastq.gz
+N2_ArimaHiC_rep1,/path/to/fastq/N2_ArimaHiC_rep1_L002_R1_001.fastq.gz,/path/to/fastq/N2_ArimaHiC_rep1_L002_R2_001.fastq.gz
+N2_ArimaHiC_rep2,/path/to/fastq/N2_ArimaHiC_rep2_L001_R1_001.fastq.gz,/path/to/fastq/N2_ArimaHiC_rep2_L001_R2_001.fastq.gz

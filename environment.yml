@@ -1,0 +1,13 @@
+name: hicpro-multicontact-nf
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.10,<3.13
+  - bowtie2>=2.5.1
+  - samtools>=1.17
+  - pysam>=0.21.0
+  - cooler>=0.9.3
+  - pairix>=0.3.7
+  - coreutils
