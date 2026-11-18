@@ -60,9 +60,8 @@ OUTDIR="${RUN_BASE}/results"
 WORKDIR="${RUN_BASE}/work"
 
 nextflow run "${PIPELINE_DIR}/main.nf" \
-    -profile izblisbon,conda \
+    -profile izblisbon \
     -w "${WORKDIR}" \
-    --conda_env '/home/pmeister/miniconda3/envs/HiC-Pro_v3.1.0' \
     --slurm_partition 'all' \
     --slurm_cluster_options '--ntasks-per-core=2 --hint=multithread' \
     --slurm_queue_size "${MAX_CONCURRENT_TASKS}" \
@@ -73,6 +72,7 @@ nextflow run "${PIPELINE_DIR}/main.nf" \
     --outdir "${OUTDIR}" \
     --restriction_sites '^GATC,G^ANTC' \
     --ligation_motifs 'arima' \
+    --trim_5p 5 \
     --min_mapq 30 \
     --min_frag_len 20 \
     --max_rounds 4 \
