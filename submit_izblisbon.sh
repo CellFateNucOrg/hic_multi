@@ -34,22 +34,24 @@ RUN_BASE="/mnt/meister.data/pmeister/20260904_arima_HN2_2_shallow_multicontact"
 mkdir -p "${RUN_BASE}"
 cd "${RUN_BASE}"
 
-# Query live cluster usage on partition 'all' to enforce <= 50% of Available CPUs
+# Query live cluster usage on partition 'all' to enforce <= 50% of Available CPUs across ALL own running jobs
 TOTAL_UP=$(sinfo -h -N -p all -o "%N %C %T" 2>/dev/null | awk '$3 !~ /down|drain|drng|maint|fail/ {split($2,a,"/"); s += a[4]} END {print s+0}')
 OTHER_USED=$(squeue -h -t R -p all -o "%u %C" 2>/dev/null | awk -v me="$(whoami)" '$1 != me {s += $2} END {print s+0}')
+OWN_RUNNING=$(squeue -h -t R -p all -u "$(whoami)" -o "%C" 2>/dev/null | awk '{s += $1} END {print s+0}')
 AVAIL_CPUS=$(( TOTAL_UP - OTHER_USED ))
 [[ "${AVAIL_CPUS}" -lt 4 ]] && AVAIL_CPUS=16
 MAX_OWN_CPUS=$(( AVAIL_CPUS / 2 ))
-[[ "${MAX_OWN_CPUS}" -lt 2 ]] && MAX_OWN_CPUS=2
+REMAINING_OWN_CPUS=$(( MAX_OWN_CPUS - OWN_RUNNING ))
+[[ "${REMAINING_OWN_CPUS}" -lt 2 ]] && REMAINING_OWN_CPUS=2
 
-# Each ITERATIVE_BOWTIE2_MAP task uses 8 logical CPUs by default (or MAX_OWN_CPUS if smaller)
+# Each ITERATIVE_BOWTIE2_MAP task uses 8 logical CPUs by default (or REMAINING_OWN_CPUS if smaller)
 TASK_CPUS=8
-[[ "${MAX_OWN_CPUS}" -lt "${TASK_CPUS}" ]] && TASK_CPUS="${MAX_OWN_CPUS}"
-MAX_CONCURRENT_TASKS=$(( MAX_OWN_CPUS / TASK_CPUS ))
+[[ "${REMAINING_OWN_CPUS}" -lt "${TASK_CPUS}" ]] && TASK_CPUS="${REMAINING_OWN_CPUS}"
+MAX_CONCURRENT_TASKS=$(( REMAINING_OWN_CPUS / TASK_CPUS ))
 [[ "${MAX_CONCURRENT_TASKS}" -lt 1 ]] && MAX_CONCURRENT_TASKS=1
 
 echo "[SLURM Policy] Total online CPUs: ${TOTAL_UP}, Other users allocated: ${OTHER_USED}, Available: ${AVAIL_CPUS}"
-echo "[SLURM Policy] Capping own usage to <= 50% of available (${MAX_OWN_CPUS} CPUs -> max ${MAX_CONCURRENT_TASKS} concurrent ${TASK_CPUS}-CPU tasks)"
+echo "[SLURM Policy] Max own CPUs (50% available): ${MAX_OWN_CPUS}, Own already running: ${OWN_RUNNING}, Remaining budget: ${REMAINING_OWN_CPUS} CPUs -> max ${MAX_CONCURRENT_TASKS} concurrent ${TASK_CPUS}-CPU tasks"
 
 SAMPLESHEET="/mnt/meister.data/mdas/20260904_arima_HN2_2_shallow/samplesheet.csv"
 GENOME_FASTA="/mnt/meister.data/pmeister/WBcel235/Caenorhabditis_elegans/Ensembl/WBcel235/Sequence/WholeGenomeFasta/genome.fa"
