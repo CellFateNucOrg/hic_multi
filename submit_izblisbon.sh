@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
 #SBATCH --time=48:00:00
-#SBATCH --output=nf_hic_multicontact_%j.log
-#SBATCH --error=nf_hic_multicontact_%j.err
+#SBATCH --output=/mnt/meister.data/pmeister/20260904_arima_HN2_2_shallow_multicontact/nf_hic_multicontact_%j.log
+#SBATCH --error=/mnt/meister.data/pmeister/20260904_arima_HN2_2_shallow_multicontact/nf_hic_multicontact_%j.err
 
 set -euo pipefail
 
@@ -19,12 +19,20 @@ export MKL_NUM_THREADS=1
 # Launcher script for hicpro-multicontact-nf on izblisbon.izb.unibe.ch (SLURM)
 # Dispatches all compute tasks to SLURM compute nodes (--partition=all) and
 # caps total concurrent logical CPUs across own jobs to <= 50% of Available CPUs.
-#
-# Usage (from izblisbon login node):
-#   sbatch submit_izblisbon.sh
 # ==============================================================================
 
-chmod +x bin/*.py
+# Activate env_nf2 for Nextflow
+source /home/pmeister/miniconda3/bin/activate env_nf2
+
+export NXF_JVM_ARGS="-XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=75"
+export NXF_SYNTAX_PARSER=v1
+
+PIPELINE_DIR="/home/pmeister/hicpro-multicontact-nf"
+chmod +x "${PIPELINE_DIR}/bin/"*.py
+
+RUN_BASE="/mnt/meister.data/pmeister/20260904_arima_HN2_2_shallow_multicontact"
+mkdir -p "${RUN_BASE}"
+cd "${RUN_BASE}"
 
 # Query live cluster usage on partition 'all' to enforce <= 50% of Available CPUs
 TOTAL_UP=$(sinfo -h -N -p all -o "%N %C %T" 2>/dev/null | awk '$3 !~ /down|drain|drng|maint|fail/ {split($2,a,"/"); s += a[4]} END {print s+0}')
@@ -43,21 +51,23 @@ MAX_CONCURRENT_TASKS=$(( MAX_OWN_CPUS / TASK_CPUS ))
 echo "[SLURM Policy] Total online CPUs: ${TOTAL_UP}, Other users allocated: ${OTHER_USED}, Available: ${AVAIL_CPUS}"
 echo "[SLURM Policy] Capping own usage to <= 50% of available (${MAX_OWN_CPUS} CPUs -> max ${MAX_CONCURRENT_TASKS} concurrent ${TASK_CPUS}-CPU tasks)"
 
-# Configure paths for your C. elegans reference (WBcel235 / ce11) and samplesheet
-SAMPLESHEET="assets/samplesheet.csv"
-GENOME_FASTA="/path/to/genomes/Caenorhabditis_elegans/WBcel235/ce11.fa"
-OUTDIR="results_celegans_arima"
+SAMPLESHEET="/mnt/meister.data/mdas/20260904_arima_HN2_2_shallow/samplesheet.csv"
+GENOME_FASTA="/mnt/meister.data/pmeister/WBcel235/Caenorhabditis_elegans/Ensembl/WBcel235/Sequence/WholeGenomeFasta/genome.fa"
+BOWTIE2_INDEX="/mnt/meister.data/pmeister/WBcel235/Caenorhabditis_elegans/Ensembl/WBcel235/Sequence/Bowtie2Index/genome"
+OUTDIR="${RUN_BASE}/results"
+WORKDIR="${RUN_BASE}/work"
 
-export NXF_OPTS="-Xms1G -Xmx4G"
-
-nextflow run main.nf \
+nextflow run "${PIPELINE_DIR}/main.nf" \
     -profile izblisbon,conda \
+    -w "${WORKDIR}" \
+    --conda_env '/home/pmeister/miniconda3/envs/HiC-Pro_v3.1.0' \
     --slurm_partition 'all' \
     --slurm_cluster_options '--ntasks-per-core=2 --hint=multithread' \
     --slurm_queue_size "${MAX_CONCURRENT_TASKS}" \
     --max_cpus "${TASK_CPUS}" \
     --input "${SAMPLESHEET}" \
     --fasta "${GENOME_FASTA}" \
+    --bowtie2_index "${BOWTIE2_INDEX}" \
     --outdir "${OUTDIR}" \
     --restriction_sites '^GATC,G^ANTC' \
     --ligation_motifs 'arima' \
@@ -66,5 +76,5 @@ nextflow run main.nf \
     --max_rounds 4 \
     --fastq_chunk_size 2500000 \
     --cool_base_bin 500 \
-    --cool_resolutions '500,1000,2000,5000,10000,25000,50000,100000' \
+    --cool_resolutions '500,1000,2000,4000,5000,10000,20000,25000,50000,100000,200000' \
     -resume

@@ -40,9 +40,9 @@ workflow {
 
     if (params.bowtie2_index) {
         ch_bt2_index = Channel
-            .fromPath("${params.bowtie2_index}*", checkIfExists: true)
+            .fromPath("${params.bowtie2_index}*.bt2*", checkIfExists: true)
             .collect()
-            .map { files -> [ file(params.bowtie2_index).simpleName, files ] }
+            .map { files -> [ file(params.bowtie2_index).name, files ] }
             .first()
     } else {
         BOWTIE2_BUILD(ch_fasta)

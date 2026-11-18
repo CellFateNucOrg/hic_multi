@@ -14,7 +14,8 @@ process ITERATIVE_BOWTIE2_MAP {
 
     script:
     def prefix = "${meta.id}_chunk${chunk_id}_R${mate}"
-    def bt2_prefix = bt2_index_files[0].toString().replaceAll(/(\.rev)?\.[0-9]+\.bt2l?$/, '')
+    def bt2_file = bt2_index_files.find { it.toString().endsWith('.1.bt2') || it.toString().endsWith('.1.bt2l') } ?: bt2_index_files[0]
+    def bt2_prefix = bt2_file.toString().replaceAll(/(\.rev)?\.[0-9]+\.bt2l?$/, '')
     """
     iterative_cut_and_map.py \\
         --fastq ${fastq_chunk} \\
