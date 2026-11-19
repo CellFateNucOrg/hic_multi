@@ -87,7 +87,7 @@ def matrix_density_stats(clr_nonmulti: cooler.Cooler, clr_multi: cooler.Cooler, 
 
     return {
         "binsize": int(clr_multi.binsize),
-        "chrom": chrom,
+        "chrom": base_chrom,
         "total_upper_triangle_pixels": int(tot_pixels),
         "nonmulti_nonzero_pixels": int(nz1),
         "nonmulti_nonzero_pct": round(100.0 * nz1 / tot_pixels, 2),
