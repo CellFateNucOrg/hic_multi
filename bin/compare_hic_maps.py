@@ -18,6 +18,16 @@ import numpy as np
 from scipy.stats import pearsonr, spearmanr
 
 
+def resolve_chrom(clr: cooler.Cooler, base_chrom: str) -> str:
+    """Resolve chromosome name across UCSC ('chrI') and Ensembl ('I') naming conventions."""
+    if base_chrom in clr.chromnames:
+        return base_chrom
+    alt = f"chr{base_chrom}" if not base_chrom.startswith("chr") else base_chrom[3:]
+    if alt in clr.chromnames:
+        return alt
+    return clr.chromnames[0]
+
+
 def compute_ps_curve(clr: cooler.Cooler, chroms=None):
     """Compute mean contact frequency P(s) as a function of genomic distance s (in bins)."""
     binsize = clr.binsize
@@ -44,10 +54,12 @@ def compute_ps_curve(clr: cooler.Cooler, chroms=None):
     return distances_bp, mean_raw, norm_prob
 
 
-def matrix_density_stats(clr_nonmulti: cooler.Cooler, clr_multi: cooler.Cooler, chrom: str):
+def matrix_density_stats(clr_nonmulti: cooler.Cooler, clr_multi: cooler.Cooler, base_chrom: str):
     """Compare non-zero pixel density, median counts per non-zero pixel, and correlation on a chromosome."""
-    m1_raw = clr_nonmulti.matrix(balance=False).fetch(chrom).astype(np.float64)
-    m2_raw = clr_multi.matrix(balance=False).fetch(chrom).astype(np.float64)
+    c1 = resolve_chrom(clr_nonmulti, base_chrom)
+    c2 = resolve_chrom(clr_multi, base_chrom)
+    m1_raw = clr_nonmulti.matrix(balance=False).fetch(c1).astype(np.float64)
+    m2_raw = clr_multi.matrix(balance=False).fetch(c2).astype(np.float64)
 
     triu_idx = np.triu_indices_from(m1_raw, k=1)
     v1 = m1_raw[triu_idx]
@@ -117,8 +129,7 @@ def main():
     for res in shared_resolutions:
         c_nm = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/{res}")
         c_mc = cooler.Cooler(f"{args.multi_mcool}::/resolutions/{res}")
-        chrom_I = "I" if "I" in c_mc.chromnames else c_mc.chromnames[0]
-        metrics["resolutions"][str(res)] = matrix_density_stats(c_nm, c_mc, chrom_I)
+        metrics["resolutions"][str(res)] = matrix_density_stats(c_nm, c_mc, "I")
 
     with open(args.outdir / "hic_map_comparison_metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
@@ -130,8 +141,10 @@ def main():
     # Panel A: Chromosome I Whole-Chromosome Split-Diagonal Map at 20 kb (Raw Contacts)
     c_nm_20k = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/20000")
     c_mc_20k = cooler.Cooler(f"{args.multi_mcool}::/resolutions/20000")
-    m_nm_I_raw = c_nm_20k.matrix(balance=False).fetch("I").astype(np.float64)
-    m_mc_I_raw = c_mc_20k.matrix(balance=False).fetch("I").astype(np.float64)
+    ch_nm = resolve_chrom(c_nm_20k, "I")
+    ch_mc = resolve_chrom(c_mc_20k, "I")
+    m_nm_I_raw = c_nm_20k.matrix(balance=False).fetch(ch_nm).astype(np.float64)
+    m_mc_I_raw = c_mc_20k.matrix(balance=False).fetch(ch_mc).astype(np.float64)
 
     ax1 = fig.add_subplot(gs[0, 0])
     split_raw = make_split_triangle_matrix(m_mc_I_raw, m_nm_I_raw)
@@ -140,17 +153,17 @@ def main():
         split_raw + 0.5,
         cmap="YlOrRd",
         norm=LogNorm(vmin=0.5, vmax=max(10.0, vmax_raw)),
-        extent=[0, c_mc_20k.chromsizes["I"] / 1e6, c_mc_20k.chromsizes["I"] / 1e6, 0],
+        extent=[0, c_mc_20k.chromsizes[ch_mc] / 1e6, c_mc_20k.chromsizes[ch_mc] / 1e6, 0],
     )
-    ax1.plot([0, c_mc_20k.chromsizes["I"] / 1e6], [0, c_mc_20k.chromsizes["I"] / 1e6], color="black", lw=0.8)
+    ax1.plot([0, c_mc_20k.chromsizes[ch_mc] / 1e6], [0, c_mc_20k.chromsizes[ch_mc] / 1e6], color="black", lw=0.8)
     ax1.set_title("A. Chr I Raw Contact Counts (20 kb bins)\nUpper-Right: Multi-Contact (4.45M) | Lower-Left: Non-Multi (229k)", fontsize=11, fontweight="bold")
     ax1.set_xlabel("Chromosome I Position (Mb)")
     ax1.set_ylabel("Chromosome I Position (Mb)")
     plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="Raw Contacts / 20 kb bin pair")
 
     # Panel B: Chromosome I ICE-Normalized Split-Diagonal Map at 20 kb
-    m_nm_I_bal = np.nan_to_num(c_nm_20k.matrix(balance=True).fetch("I"), nan=0.0)
-    m_mc_I_bal = np.nan_to_num(c_mc_20k.matrix(balance=True).fetch("I"), nan=0.0)
+    m_nm_I_bal = np.nan_to_num(c_nm_20k.matrix(balance=True).fetch(ch_nm), nan=0.0)
+    m_mc_I_bal = np.nan_to_num(c_mc_20k.matrix(balance=True).fetch(ch_mc), nan=0.0)
     ax2 = fig.add_subplot(gs[0, 1])
     split_bal = make_split_triangle_matrix(m_mc_I_bal, m_nm_I_bal)
     nz_bal = m_mc_I_bal[m_mc_I_bal > 0]
@@ -160,9 +173,9 @@ def main():
         np.clip(split_bal, vmin_bal * 0.5, None),
         cmap="YlOrRd",
         norm=LogNorm(vmin=max(1e-6, vmin_bal), vmax=max(1e-4, vmax_bal)),
-        extent=[0, c_mc_20k.chromsizes["I"] / 1e6, c_mc_20k.chromsizes["I"] / 1e6, 0],
+        extent=[0, c_mc_20k.chromsizes[ch_mc] / 1e6, c_mc_20k.chromsizes[ch_mc] / 1e6, 0],
     )
-    ax2.plot([0, c_mc_20k.chromsizes["I"] / 1e6], [0, c_mc_20k.chromsizes["I"] / 1e6], color="black", lw=0.8)
+    ax2.plot([0, c_mc_20k.chromsizes[ch_mc] / 1e6], [0, c_mc_20k.chromsizes[ch_mc] / 1e6], color="black", lw=0.8)
     ax2.set_title("B. Chr I ICE-Balanced Contact Map (20 kb bins)\nUpper-Right: Multi-Contact | Lower-Left: Non-Multi", fontsize=11, fontweight="bold")
     ax2.set_xlabel("Chromosome I Position (Mb)")
     ax2.set_ylabel("Chromosome I Position (Mb)")
@@ -171,9 +184,8 @@ def main():
     # Panel C: High-Resolution 4 kb Zoom-In on Chr I: 4.0 - 9.0 Mb (Split Diagonal)
     c_nm_4k = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/4000")
     c_mc_4k = cooler.Cooler(f"{args.multi_mcool}::/resolutions/4000")
-    region = "I:4,000,000-9,000,000"
-    z_nm_raw = c_nm_4k.matrix(balance=False).fetch(region).astype(np.float64)
-    z_mc_raw = c_mc_4k.matrix(balance=False).fetch(region).astype(np.float64)
+    z_nm_raw = c_nm_4k.matrix(balance=False).fetch(f"{resolve_chrom(c_nm_4k, 'I')}:4,000,000-9,000,000").astype(np.float64)
+    z_mc_raw = c_mc_4k.matrix(balance=False).fetch(f"{resolve_chrom(c_mc_4k, 'I')}:4,000,000-9,000,000").astype(np.float64)
     ax3 = fig.add_subplot(gs[1, 0])
     split_zoom = make_split_triangle_matrix(z_mc_raw, z_nm_raw)
     vmax_zoom = np.nanpercentile(z_mc_raw[z_mc_raw > 0], 98) if np.any(z_mc_raw > 0) else 20
