@@ -71,7 +71,7 @@ workflow {
     } else {
         ch_chunked_pairs = ch_samplesheet
             .map { meta, fq1, fq2 ->
-                def chunk_tag = fq1.simpleName
+                def chunk_tag = fq1.name.replaceAll(/(\.fastq|\.fq)(\.gz)?$/, '')
                 return [ meta, chunk_tag, fq1, fq2 ]
             }
     }
