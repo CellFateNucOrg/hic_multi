@@ -39,8 +39,7 @@ if [[ ! -s "${TRIM_R1}" || ! -s "${TRIM_R2}" ]]; then
     wait "${PID1}" "${PID2}"
     mv "${TRIM_R1}.tmp" "${TRIM_R1}"
     mv "${TRIM_R2}.tmp" "${TRIM_R2}"
-    echo "[Trim] Done. Verifying read length:"
-    gzip -dc "${TRIM_R1}" | head -n 2 | awk 'NR==2 {print "Trimmed R1 length:", length($0)}'
+    echo "[Trim] Done."
 fi
 
 # 2. Enforce SLURM cluster policy: <= 50% of Available CPUs
