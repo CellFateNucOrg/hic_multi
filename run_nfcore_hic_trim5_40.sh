@@ -62,11 +62,12 @@ executor {
 }
 process {
     clusterOptions = "--ntasks-per-core=2 --hint=multithread"
-    beforeScript = "export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1"
+    beforeScript = "export PATH=/home/pmeister/miniconda3/envs/env_nf/bin:\\\$PATH OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1"
 }
 EOC
 
 source /home/pmeister/miniconda3/bin/activate env_nf2
+export PATH="/home/pmeister/miniconda3/envs/env_nf/bin:$PATH"
 export NXF_JVM_ARGS="-XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=75"
 export NXF_SYNTAX_PARSER=v1
 
