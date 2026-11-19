@@ -113,6 +113,16 @@ def make_split_triangle_matrix(m_upper: np.ndarray, m_lower: np.ndarray) -> np.n
     return combined
 
 
+def open_nonmulti_cooler(mcool_path: Path, res: int) -> cooler.Cooler:
+    """Open resolution from .mcool if present, otherwise fallback to sibling HN2_2.<res>_balanced.cool."""
+    uri = f"{mcool_path}::/resolutions/{res}"
+    try:
+        return cooler.Cooler(uri)
+    except Exception:
+        sibling = mcool_path.parent / f"HN2_2.{res}_balanced.cool"
+        return cooler.Cooler(str(sibling))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Compare Non-Multi vs Multi-Contact Hi-C .mcool files.")
     parser.add_argument("--nonmulti-mcool", required=True, type=Path)
@@ -127,7 +137,7 @@ def main():
     metrics = {"resolutions": {}}
 
     for res in shared_resolutions:
-        c_nm = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/{res}")
+        c_nm = open_nonmulti_cooler(args.nonmulti_mcool, res)
         c_mc = cooler.Cooler(f"{args.multi_mcool}::/resolutions/{res}")
         metrics["resolutions"][str(res)] = matrix_density_stats(c_nm, c_mc, "I")
 
@@ -139,7 +149,7 @@ def main():
     gs = fig.add_gridspec(2, 2, hspace=0.28, wspace=0.25)
 
     # Panel A: Chromosome I Whole-Chromosome Split-Diagonal Map at 20 kb (Raw Contacts)
-    c_nm_20k = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/20000")
+    c_nm_20k = open_nonmulti_cooler(args.nonmulti_mcool, 20000)
     c_mc_20k = cooler.Cooler(f"{args.multi_mcool}::/resolutions/20000")
     ch_nm = resolve_chrom(c_nm_20k, "I")
     ch_mc = resolve_chrom(c_mc_20k, "I")
