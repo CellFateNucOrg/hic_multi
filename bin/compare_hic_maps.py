@@ -221,13 +221,13 @@ def main():
     ax2.set_ylabel(f"Chromosome {target_chrom} Position (Mb)")
     plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04, label="ICE-Balanced Contact Frequency")
 
-    # Panel C: High-Resolution 4 kb Zoom-In on Central TAD Region (6.0 - 12.0 Mb for X, 5.0 - 8.0 Mb otherwise)
+    # Panel C: High-Resolution Zoom-In on Central TAD Region (3.0 - 15.0 Mb at 10 kb for X, 5.0 - 8.0 Mb at 4 kb otherwise)
     if target_chrom == "X":
-        z_start_mb, z_end_mb = 6.0, 12.0
-        zoom_res = 4000
+        z_start_mb, z_end_mb = 3.0, 15.0
+        zoom_res = 10000
     else:
         z_start_mb, z_end_mb = 5.0, 8.0
-        zoom_res = 2000
+        zoom_res = 4000
 
     c_nm_z = open_cooler_res(args.nonmulti_mcool, zoom_res)
     c_mc_z = open_cooler_res(args.multi_mcool, zoom_res)
@@ -243,8 +243,9 @@ def main():
     )
     ax3 = fig.add_subplot(gs[1, 0])
     split_zoom = make_split_triangle_matrix(z_mc_bal, z_nm_bal)
-    nz_z = z_mc_bal[z_mc_bal > 0]
-    vmin_z = np.percentile(nz_z, 8) if len(nz_z) > 0 else 1e-5
+    off_diag = np.triu(z_mc_bal, k=2)
+    nz_z = off_diag[off_diag > 0]
+    vmin_z = np.percentile(nz_z, 5) if len(nz_z) > 0 else 1e-5
     vmax_z = np.percentile(nz_z, 98.5) if len(nz_z) > 0 else 1e-2
     im3 = ax3.imshow(
         np.clip(split_zoom, vmin_z * 0.5, None),
@@ -255,7 +256,7 @@ def main():
     ax3.plot([z_start_mb, z_end_mb], [z_start_mb, z_end_mb], color="black", lw=0.8)
     rz_stats = metrics["resolutions"][str(zoom_res)]
     ax3.set_title(
-        f"C. High-Resolution ICE-Balanced Zoom-In: Chr {target_chrom}:{z_start_mb:.1f}-{z_end_mb:.1f} Mb ({zoom_res//1000} kb bins)\n"
+        f"C. Chr {target_chrom} TAD Zoom-In: {z_start_mb:.1f}-{z_end_mb:.1f} Mb ({zoom_res//1000} kb bins, r={rz_stats['log1p_pearson_r']})\n"
         f"Upper-Right: Multi (+{round((rz_stats['contact_gain_factor']-1)*100, 1)}% cis contacts) | Lower-Left: Trimmed nf-core",
         fontsize=10.5,
         fontweight="bold",
