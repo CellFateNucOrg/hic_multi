@@ -56,19 +56,32 @@ QUEUE_SIZE=$(( REMAINING_CPUS / 8 ))
 
 echo "[SLURM Policy] Total: ${TOTAL_UP}, Other used: ${OTHER_USED}, Avail: ${AVAIL_CPUS}, Max own: ${MAX_OWN_CPUS}, Own running: ${OWN_RUNNING} -> Nextflow queueSize=${QUEUE_SIZE}"
 
+HICPRO_PATH="/home/pmeister/HiC-Pro_install/HiC-Pro_3.1.0/HiC-Pro/scripts:/home/pmeister/HiC-Pro_install/HiC-Pro_3.1.0/bin/utils:/home/pmeister/miniconda3/envs/HiC-Pro_v3.1.0/bin:/home/pmeister/miniconda3/envs/coolns/bin:/home/pmeister/miniconda3/envs/hicexplorer/bin:/home/pmeister/miniconda3/envs/deeptools/bin"
+COOL_PATH="/home/pmeister/miniconda3/envs/coolns/bin:${HICPRO_PATH}"
+
 cat << EOC > "${WORK_DIR}/policy_override.config"
+singularity {
+    enabled = false
+}
 executor {
+    name = 'slurm'
     queueSize = ${QUEUE_SIZE}
 }
 process {
+    executor = 'slurm'
+    queue = 'all'
+    maxRetries = 2
+    scratch = "/scratch/\${System.getenv('USER')}"
     clusterOptions = "--ntasks-per-core=2 --hint=multithread"
-    beforeScript = "export PATH=/home/pmeister/miniconda3/envs/env_nf2/bin:\\\$PATH OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1"
+    beforeScript = "mkdir -p /scratch/\\\$USER && export PYTHONNOUSERSITE=1 PATH=${HICPRO_PATH}:\\\$PATH OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1"
+
+    withName: '.*COOLER.*|.*COOLTOOLS.*|.*DUMPMATRIX.*' {
+        beforeScript = "mkdir -p /scratch/\\\$USER && export PYTHONNOUSERSITE=1 PATH=${COOL_PATH}:\\\$PATH OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1"
+    }
 }
 EOC
 
 source /home/pmeister/miniconda3/bin/activate env_nf2
-ln -sf /home/pmeister/miniconda3/envs/env_nf2/bin/apptainer /home/pmeister/miniconda3/envs/env_nf2/bin/singularity
-export PATH="/home/pmeister/miniconda3/envs/env_nf2/bin:$PATH"
 export NXF_JVM_ARGS="-XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=75"
 export NXF_SYNTAX_PARSER=v1
 
@@ -77,8 +90,6 @@ BWT2_DIR="/mnt/meister.data/pmeister/WBcel235/Caenorhabditis_elegans/Ensembl/WBc
 
 nextflow run nf-core/hic \
     -r 2.1.0 \
-    -profile singularity \
-    -c /mnt/meister.data/nf-core/unibe_izb.config \
     -c "${WORK_DIR}/policy_override.config" \
     -w "${WORK_DIR}/work" \
     --input "${WORK_DIR}/samplesheet.csv" \
@@ -86,6 +97,9 @@ nextflow run nf-core/hic \
     --bwt2_index "${BWT2_DIR}" \
     --digestion "arima" \
     --bin_size "2000,4000,10000,20000,200000" \
+    --skip_fastqc \
     --skip_multiqc \
+    --skip_compartments \
+    --skip_tads \
     --outdir "${WORK_DIR}/results" \
     -resume
