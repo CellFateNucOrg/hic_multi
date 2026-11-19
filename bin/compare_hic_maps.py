@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Quantitative and visual comparison of Non-Multi (standard nf-core/hic HiC-Pro)
-vs. Multi-Contact (hicpro-multicontact-nf iterative 5'+3' rescue + all-pairs AB/AC/BC)
-Hi-C contact maps (.mcool).
+Quantitative and visual comparison of:
+  1. Fair-Trimmed Non-Multi nf-core/hic v2.1.0 (first 5 nt and last 40 nt removed -> 106 nt; 3.20M contacts)
+  2. Multi-Contact hicpro-multicontact-nf (first 5 nt removed -> 146 nt, iterative 5'+3' rescue + AB/AC/BC all-pairs; 4.45M contacts)
+  3. (Optional reference) Untrimmed Non-Multi nf-core/hic v2.1.0 (151 nt; 229k contacts)
 """
 
 import argparse
@@ -26,6 +27,20 @@ def resolve_chrom(clr: cooler.Cooler, base_chrom: str) -> str:
     if alt in clr.chromnames:
         return alt
     return clr.chromnames[0]
+
+
+def open_cooler_res(mcool_path: Path, res: int) -> cooler.Cooler:
+    """Open resolution from .mcool if present, otherwise fallback to sibling *.<res>_balanced.cool."""
+    uri = f"{mcool_path}::/resolutions/{res}"
+    try:
+        return cooler.Cooler(uri)
+    except Exception:
+        candidates = list(mcool_path.parent.glob(f"*.{res}_balanced.cool")) + list(
+            mcool_path.parent.glob(f"*.{res}.cool")
+        )
+        if candidates:
+            return cooler.Cooler(str(candidates[0]))
+        raise
 
 
 def compute_ps_curve(clr: cooler.Cooler, chroms=None):
@@ -55,7 +70,7 @@ def compute_ps_curve(clr: cooler.Cooler, chroms=None):
 
 
 def matrix_density_stats(clr_nonmulti: cooler.Cooler, clr_multi: cooler.Cooler, base_chrom: str):
-    """Compare non-zero pixel density, median counts per non-zero pixel, and correlation on a chromosome."""
+    """Compare non-zero pixel density, total cis contacts, and correlation on a chromosome."""
     c1 = resolve_chrom(clr_nonmulti, base_chrom)
     c2 = resolve_chrom(clr_multi, base_chrom)
     m1_raw = clr_nonmulti.matrix(balance=False).fetch(c1).astype(np.float64)
@@ -85,6 +100,10 @@ def matrix_density_stats(clr_nonmulti: cooler.Cooler, clr_multi: cooler.Cooler, 
                 strat_weights.append(len(d1))
     scc_approx = float(np.average(strat_corrs, weights=strat_weights)) if strat_corrs else 0.0
 
+    # Include main diagonal in total cis contacts
+    tot_cis_1 = int(np.sum(np.triu(m1_raw, k=0)))
+    tot_cis_2 = int(np.sum(np.triu(m2_raw, k=0)))
+
     return {
         "binsize": int(clr_multi.binsize),
         "chrom": base_chrom,
@@ -94,9 +113,9 @@ def matrix_density_stats(clr_nonmulti: cooler.Cooler, clr_multi: cooler.Cooler, 
         "multi_nonzero_pixels": int(nz2),
         "multi_nonzero_pct": round(100.0 * nz2 / tot_pixels, 2),
         "nonzero_pixel_gain_factor": round(nz2 / max(1, nz1), 2),
-        "nonmulti_total_cis_contacts": int(np.sum(m1_raw)),
-        "multi_total_cis_contacts": int(np.sum(m2_raw)),
-        "contact_gain_factor": round(float(np.sum(m2_raw)) / max(1.0, float(np.sum(m1_raw))), 2),
+        "nonmulti_total_cis_contacts": tot_cis_1,
+        "multi_total_cis_contacts": tot_cis_2,
+        "contact_gain_factor": round(float(tot_cis_2) / max(1.0, float(tot_cis_1)), 3),
         "log1p_pearson_r": round(float(r_pearson), 4),
         "spearman_r": round(float(r_spearman), 4),
         "distance_stratified_corr_1_to_100bins": round(scc_approx, 4),
@@ -113,35 +132,29 @@ def make_split_triangle_matrix(m_upper: np.ndarray, m_lower: np.ndarray) -> np.n
     return combined
 
 
-def open_nonmulti_cooler(mcool_path: Path, res: int) -> cooler.Cooler:
-    """Open resolution from .mcool if present, otherwise fallback to sibling HN2_2.<res>_balanced.cool."""
-    uri = f"{mcool_path}::/resolutions/{res}"
-    try:
-        return cooler.Cooler(uri)
-    except Exception:
-        sibling = mcool_path.parent / f"HN2_2.{res}_balanced.cool"
-        return cooler.Cooler(str(sibling))
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Compare Non-Multi vs Multi-Contact Hi-C .mcool files.")
-    parser.add_argument("--nonmulti-mcool", required=True, type=Path)
-    parser.add_argument("--multi-mcool", required=True, type=Path)
+    parser = argparse.ArgumentParser(description="Compare Trimmed Non-Multi vs Multi-Contact Hi-C .mcool files.")
+    parser.add_argument("--nonmulti-mcool", required=True, type=Path, help="Trimmed nf-core/hic .mcool (5'-5nt, 3'-40nt)")
+    parser.add_argument("--multi-mcool", required=True, type=Path, help="Multi-contact hicpro-multicontact-nf .mcool")
+    parser.add_argument("--untrimmed-mcool", type=Path, default=None, help="Optional untrimmed nf-core/hic .mcool")
     parser.add_argument("--outdir", required=True, type=Path)
     args = parser.parse_args()
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Quantitative metrics across shared resolutions (2kb, 4kb, 10kb, 20kb, 200kb)
-    shared_resolutions = [2000, 4000, 10000, 20000, 200000]
+    # 1. Quantitative metrics across shared resolutions (500bp, 1kb, 2kb, 4kb, 10kb, 20kb, 200kb)
+    shared_resolutions = [500, 1000, 2000, 4000, 10000, 20000, 200000]
     metrics = {"resolutions": {}}
 
     for res in shared_resolutions:
-        c_nm = open_nonmulti_cooler(args.nonmulti_mcool, res)
-        c_mc = cooler.Cooler(f"{args.multi_mcool}::/resolutions/{res}")
-        metrics["resolutions"][str(res)] = matrix_density_stats(c_nm, c_mc, "I")
+        try:
+            c_nm = open_cooler_res(args.nonmulti_mcool, res)
+            c_mc = open_cooler_res(args.multi_mcool, res)
+            metrics["resolutions"][str(res)] = matrix_density_stats(c_nm, c_mc, "I")
+        except Exception as e:
+            print(f"Skipping resolution {res}: {e}")
 
-    with open(args.outdir / "hic_map_comparison_metrics.json", "w", encoding="utf-8") as f:
+    with open(args.outdir / "hic_map_comparison_metrics_trimmed_vs_multi.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
     # 2. Generate Visual Comparison Figure (4 panels)
@@ -149,8 +162,8 @@ def main():
     gs = fig.add_gridspec(2, 2, hspace=0.28, wspace=0.25)
 
     # Panel A: Chromosome I Whole-Chromosome Split-Diagonal Map at 20 kb (Raw Contacts)
-    c_nm_20k = open_nonmulti_cooler(args.nonmulti_mcool, 20000)
-    c_mc_20k = cooler.Cooler(f"{args.multi_mcool}::/resolutions/20000")
+    c_nm_20k = open_cooler_res(args.nonmulti_mcool, 20000)
+    c_mc_20k = open_cooler_res(args.multi_mcool, 20000)
     ch_nm = resolve_chrom(c_nm_20k, "I")
     ch_mc = resolve_chrom(c_mc_20k, "I")
     m_nm_I_raw = c_nm_20k.matrix(balance=False).fetch(ch_nm).astype(np.float64)
@@ -166,7 +179,13 @@ def main():
         extent=[0, c_mc_20k.chromsizes[ch_mc] / 1e6, c_mc_20k.chromsizes[ch_mc] / 1e6, 0],
     )
     ax1.plot([0, c_mc_20k.chromsizes[ch_mc] / 1e6], [0, c_mc_20k.chromsizes[ch_mc] / 1e6], color="black", lw=0.8)
-    ax1.set_title("A. Chr I Raw Contact Counts (20 kb bins)\nUpper-Right: Multi-Contact (4.45M) | Lower-Left: Non-Multi (229k)", fontsize=11, fontweight="bold")
+    r20k = metrics["resolutions"]["20000"]
+    ax1.set_title(
+        f"A. Chr I Raw Contact Counts (20 kb bins, r={r20k['log1p_pearson_r']})\n"
+        f"Upper-Right: Multi-Contact (4.45M) | Lower-Left: Trimmed nf-core/hic (3.20M)",
+        fontsize=10.5,
+        fontweight="bold",
+    )
     ax1.set_xlabel("Chromosome I Position (Mb)")
     ax1.set_ylabel("Chromosome I Position (Mb)")
     plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="Raw Contacts / 20 kb bin pair")
@@ -186,53 +205,81 @@ def main():
         extent=[0, c_mc_20k.chromsizes[ch_mc] / 1e6, c_mc_20k.chromsizes[ch_mc] / 1e6, 0],
     )
     ax2.plot([0, c_mc_20k.chromsizes[ch_mc] / 1e6], [0, c_mc_20k.chromsizes[ch_mc] / 1e6], color="black", lw=0.8)
-    ax2.set_title("B. Chr I ICE-Balanced Contact Map (20 kb bins)\nUpper-Right: Multi-Contact | Lower-Left: Non-Multi", fontsize=11, fontweight="bold")
+    ax2.set_title(
+        f"B. Chr I ICE-Balanced Contact Map (20 kb bins)\n"
+        f"Upper-Right: Multi ({r20k['multi_nonzero_pct']}% filled) | Lower-Left: Trimmed nf-core/hic ({r20k['nonmulti_nonzero_pct']}% filled)",
+        fontsize=10.5,
+        fontweight="bold",
+    )
     ax2.set_xlabel("Chromosome I Position (Mb)")
     ax2.set_ylabel("Chromosome I Position (Mb)")
     plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04, label="ICE-Balanced Contact Frequency")
 
-    # Panel C: High-Resolution 4 kb Zoom-In on Chr I: 4.0 - 9.0 Mb (Split Diagonal)
-    c_nm_4k = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/4000")
-    c_mc_4k = cooler.Cooler(f"{args.multi_mcool}::/resolutions/4000")
-    z_nm_raw = c_nm_4k.matrix(balance=False).fetch(f"{resolve_chrom(c_nm_4k, 'I')}:4,000,000-9,000,000").astype(np.float64)
-    z_mc_raw = c_mc_4k.matrix(balance=False).fetch(f"{resolve_chrom(c_mc_4k, 'I')}:4,000,000-9,000,000").astype(np.float64)
+    # Panel C: High-Resolution 2 kb Zoom-In on Chr I: 5.0 - 8.0 Mb (Split Diagonal)
+    c_nm_2k = open_cooler_res(args.nonmulti_mcool, 2000)
+    c_mc_2k = open_cooler_res(args.multi_mcool, 2000)
+    z_nm_raw = c_nm_2k.matrix(balance=False).fetch(f"{resolve_chrom(c_nm_2k, 'I')}:5,000,000-8,000,000").astype(np.float64)
+    z_mc_raw = c_mc_2k.matrix(balance=False).fetch(f"{resolve_chrom(c_mc_2k, 'I')}:5,000,000-8,000,000").astype(np.float64)
     ax3 = fig.add_subplot(gs[1, 0])
     split_zoom = make_split_triangle_matrix(z_mc_raw, z_nm_raw)
-    vmax_zoom = np.nanpercentile(z_mc_raw[z_mc_raw > 0], 98) if np.any(z_mc_raw > 0) else 20
+    vmax_zoom = np.nanpercentile(z_mc_raw[z_mc_raw > 0], 98) if np.any(z_mc_raw > 0) else 10
     im3 = ax3.imshow(
         split_zoom + 0.2,
         cmap="YlOrRd",
         norm=LogNorm(vmin=0.2, vmax=max(5.0, vmax_zoom)),
-        extent=[4.0, 9.0, 9.0, 4.0],
+        extent=[5.0, 8.0, 8.0, 5.0],
     )
-    ax3.plot([4.0, 9.0], [4.0, 9.0], color="black", lw=0.8)
-    r4k_stats = metrics["resolutions"]["4000"]
+    ax3.plot([5.0, 8.0], [5.0, 8.0], color="black", lw=0.8)
+    r2k_stats = metrics["resolutions"]["2000"]
     ax3.set_title(
-        f"C. High-Resolution Zoom-In: Chr I:4.0-9.0 Mb (4 kb bins)\n"
-        f"Upper-Right: Multi ({r4k_stats['multi_nonzero_pct']}% filled) | Lower-Left: Non-Multi ({r4k_stats['nonmulti_nonzero_pct']}% filled)",
-        fontsize=11,
+        f"C. High-Resolution Zoom-In: Chr I:5.0-8.0 Mb (2 kb bins, +{round((r2k_stats['contact_gain_factor']-1)*100, 1)}% cis contacts)\n"
+        f"Upper-Right: Multi ({r2k_stats['multi_nonzero_pct']}% filled) | Lower-Left: Trimmed nf-core/hic ({r2k_stats['nonmulti_nonzero_pct']}% filled)",
+        fontsize=10.5,
         fontweight="bold",
     )
     ax3.set_xlabel("Chromosome I Position (Mb)")
     ax3.set_ylabel("Chromosome I Position (Mb)")
-    plt.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04, label="Raw Contacts / 4 kb bin pair")
+    plt.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04, label="Raw Contacts / 2 kb bin pair")
 
-    # Panel D: Contact Decay Curve P(s) at 2 kb Resolution (Raw Mean Contacts & Relative Probability)
-    c_nm_2k = cooler.Cooler(f"{args.nonmulti_mcool}::/resolutions/2000")
-    c_mc_2k = cooler.Cooler(f"{args.multi_mcool}::/resolutions/2000")
+    # Panel D: Contact Distance Decay Curve P(s) at 2 kb Resolution
     dist_nm, raw_nm, prob_nm = compute_ps_curve(c_nm_2k)
     dist_mc, raw_mc, prob_mc = compute_ps_curve(c_mc_2k)
 
     ax4 = fig.add_subplot(gs[1, 1])
     mask_nm = (dist_nm >= 2000) & (raw_nm > 0)
     mask_mc = (dist_mc >= 2000) & (raw_mc > 0)
-    ax4.loglog(dist_mc[mask_mc] / 1e3, raw_mc[mask_mc], label="Multi-Contact (Raw mean contacts/bin)", color="#d95f02", lw=2.2)
-    ax4.loglog(dist_nm[mask_nm] / 1e3, raw_nm[mask_nm], label="Non-Multi nf-core/hic (Raw mean contacts/bin)", color="#1b9e77", lw=2.2)
+    ax4.loglog(
+        dist_mc[mask_mc] / 1e3,
+        raw_mc[mask_mc],
+        label="Multi-Contact (5' -5nt, full 146nt, iterative 5'+3' + AB/AC/BC: 4.45M)",
+        color="#d95f02",
+        lw=2.2,
+    )
+    ax4.loglog(
+        dist_nm[mask_nm] / 1e3,
+        raw_nm[mask_nm],
+        label="Trimmed nf-core/hic (5' -5nt, 3' -40nt -> 106nt: 3.20M)",
+        color="#7570b3",
+        lw=2.0,
+    )
+
+    if args.untrimmed_mcool and args.untrimmed_mcool.exists():
+        c_un_2k = open_cooler_res(args.untrimmed_mcool, 2000)
+        dist_un, raw_un, prob_un = compute_ps_curve(c_un_2k)
+        mask_un = (dist_un >= 2000) & (raw_un > 0)
+        ax4.loglog(
+            dist_un[mask_un] / 1e3,
+            raw_un[mask_un],
+            label="Untrimmed nf-core/hic (raw 151nt: 229k)",
+            color="#1b9e77",
+            lw=1.5,
+            alpha=0.8,
+        )
 
     # Inset for normalized P(s) shape overlay
     ax4_in = ax4.inset_axes([0.48, 0.52, 0.48, 0.42])
     ax4_in.loglog(dist_mc[mask_mc] / 1e3, prob_mc[mask_mc], color="#d95f02", lw=1.8, label="Multi P(s)")
-    ax4_in.loglog(dist_nm[mask_nm] / 1e3, prob_nm[mask_nm], color="#1b9e77", lw=1.5, ls="--", label="Non-Multi P(s)")
+    ax4_in.loglog(dist_nm[mask_nm] / 1e3, prob_nm[mask_nm], color="#7570b3", lw=1.5, ls="--", label="Trimmed nf-core P(s)")
     ax4_in.set_title("Normalized P(s) Shape Overlay", fontsize=8.5, fontweight="bold")
     ax4_in.set_xlabel("Distance s (kb)", fontsize=8)
     ax4_in.set_ylabel("P(s)", fontsize=8)
@@ -240,19 +287,19 @@ def main():
     ax4_in.grid(True, which="both", alpha=0.25)
     ax4_in.legend(fontsize=7, loc="upper right")
 
-    ax4.set_title("D. Contact Distance Decay P(s) Across C. elegans Autosomes & X (2 kb bins)", fontsize=11, fontweight="bold")
+    ax4.set_title("D. Contact Distance Decay P(s) Across C. elegans Genome (2 kb bins)", fontsize=10.5, fontweight="bold")
     ax4.set_xlabel("Genomic Separation s (kb)")
     ax4.set_ylabel("Mean Cis Contacts per 2 kb Bin Pair")
     ax4.grid(True, which="both", alpha=0.3)
-    ax4.legend(loc="lower left", fontsize=9.5)
+    ax4.legend(loc="lower left", fontsize=8.5)
 
     fig.suptitle(
-        "C. elegans Arima Hi-C+ (HN2_2 Shallow, 5.82M Read Pairs): Multi-Contact (4.45M Contacts) vs. Non-Multi nf-core/hic (229k Contacts)",
-        fontsize=13.5,
+        "C. elegans Arima Hi-C+ (HN2_2, 5.82M Pairs): Multi-Contact (4.45M Contacts) vs. 5'-5nt/3'-40nt Trimmed nf-core/hic (3.20M Contacts)",
+        fontsize=13,
         fontweight="bold",
         y=0.98,
     )
-    out_png = args.outdir / "HN2_2_nonmulti_vs_multicontact_comparison.png"
+    out_png = args.outdir / "HN2_2_trimmed_nfcore_vs_multicontact_comparison.png"
     fig.savefig(out_png, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved comparison figure to {out_png}")
