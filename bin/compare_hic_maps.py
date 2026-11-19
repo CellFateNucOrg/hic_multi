@@ -142,8 +142,8 @@ def main():
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Quantitative metrics across shared resolutions (500bp, 1kb, 2kb, 4kb, 10kb, 20kb, 200kb)
-    shared_resolutions = [500, 1000, 2000, 4000, 10000, 20000, 200000]
+    # 1. Quantitative metrics across shared resolutions (1kb, 2kb, 4kb, 10kb, 20kb, 200kb)
+    shared_resolutions = [1000, 2000, 4000, 10000, 20000, 200000]
     metrics = {"resolutions": {}}
 
     for res in shared_resolutions:
