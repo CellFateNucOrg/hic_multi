@@ -1,6 +1,6 @@
-# hicpro-multicontact-nf
+# hic_multi
 
-Nextflow DSL2 Hi-C mapping and multi-contact extraction pipeline modeled on [HiC-Pro](https://github.com/nservant/HiC-Pro) and [nf-core/hic](https://nf-co.re/hic/2.1.0/), tailored for **_C. elegans_ Arima Hi-C+ / KAPA 2x150 bp paired-end libraries** running as SLURM jobs on **`izblisbon`**.
+Nextflow DSL2 Hi-C mapping and multi-contact extraction pipeline (`hic_multi`) modeled on [HiC-Pro](https://github.com/nservant/HiC-Pro) and [nf-core/hic](https://nf-co.re/hic/2.1.0/), tailored for **_C. elegans_ Arima Hi-C+ / KAPA 2x150 bp paired-end libraries** running as SLURM jobs on **`izblisbon`**.
 
 ---
 

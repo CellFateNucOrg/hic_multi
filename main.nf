@@ -1,7 +1,7 @@
 #!/usr/bin/env nextflow
 /*
  * =========================================================================================
- *  hicpro-multicontact-nf: HiC-Pro Iterative 5'+3' Multi-Fragment Rescue & All-Pairs Pipeline
+ *  hic_multi: HiC-Pro Iterative 5'+3' Multi-Fragment Rescue & All-Pairs Nextflow Pipeline
  * =========================================================================================
  *  Organism target : C. elegans (WBcel235 / ce11)
  *  Chemistry       : Arima Hi-C+ (^GATC, G^ANTC) + KAPA Library Prep (2x150 bp PE)

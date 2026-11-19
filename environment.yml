@@ -1,4 +1,4 @@
-name: hicpro-multicontact-nf
+name: hic_multi
 channels:
   - conda-forge
   - bioconda
